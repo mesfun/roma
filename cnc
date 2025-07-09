@@ -703,19 +703,22 @@
 
                 const valuesDiv = document.createElement('div');
                 valuesDiv.className = 'pattern-values';
-                tPatterns.forEach((count, pattern) => {
+                // Only render the first T pattern
+                const firstTPattern = tPatterns.keys().next().value;
+                if (firstTPattern) {
                     patternsFoundInGroupContent = true;
                     const item = document.createElement('span');
                     item.className = 'pattern-item';
-                    item.textContent = pattern;
-                    item.title = `Click to add '${pattern}' to a Find field`;
-                    item.addEventListener('click', (event) => populateNextFindField(pattern, event.target));
+                    item.textContent = firstTPattern;
+                    item.title = `Click to add '${firstTPattern}' to a Find field`;
+                    item.addEventListener('click', (event) => populateNextFindField(firstTPattern, event.target));
                     valuesDiv.appendChild(item);
-                });
+                }
                 patternRow.appendChild(valuesDiv);
                 patternsInGroupDiv.appendChild(patternRow);
             }
 
+            // Re-added the block for rendering "Next Tool (Calculated)" as non-clickable
             if (nextToolForThisGroup) {
                 const patternRow = document.createElement('div');
                 patternRow.className = 'pattern-row';
@@ -728,7 +731,7 @@
                 const valuesDiv = document.createElement('div');
                 valuesDiv.className = 'pattern-values';
                 const item = document.createElement('span');
-                item.className = 'non-clickable-pattern-item';
+                item.className = 'non-clickable-pattern-item'; // Non-clickable
                 item.textContent = nextToolForThisGroup;
                 item.title = `This is the next tool in sequence: ${nextToolForThisGroup}`;
                 valuesDiv.appendChild(item);
