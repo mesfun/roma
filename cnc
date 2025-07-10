@@ -248,8 +248,8 @@
                 <h3 class="text-lg font-semibold text-gray-700 mb-2">Calculated Formulas (Editable)</h3>
                 <div class="mb-3">
                     <label for="sFormulaInput" class="block text-sm font-medium text-gray-700">S Formula:</label>
-                    <input type="text" id="sFormulaInput" class="formula-input" value="S = (3.82 * 800) / TOOL DIA">
-                    <p class="text-xs text-gray-500 mt-1">Format: S = (Num1 * Num2) / TOOL DIA</p>
+                    <input type="text" id="sFormulaInput" class="formula-input" value="S = (3.82 * 800) / DIAMETER">
+                    <p class="text-xs text-gray-500 mt-1">Format: S = (Num1 * Num2) / DIAMETER</p>
                 </div>
                 <div>
                     <label for="fFormulaInput" class="block text-sm font-medium text-gray-700">F Formula:</label>
@@ -299,10 +299,10 @@
         let sFormulaConstants = { num1: 3.82, num2: 800 };
         let fFormulaConstants = { num1: 4, num2: 0.003 };
 
-        const toolDiaPatternRegex = /^TOOL DIA\.?\s*[=\-]?\s*([+\-]?\d*\.?\d+)$/i;
+        const toolDiaPatternRegex = /^DIAMETER\.?\s*[=\-]?\s*([+\-]?\d*\.?\d+)$/i;
 
         function parseSFormula(formulaString) {
-            const regex = /S\s*=\s*\(\s*(\d+\.?\d*)\s*[\*x]\s*(\d+\.?\d*)\s*\)\s*\/\s*TOOL DIA/i;
+            const regex = /S\s*=\s*\(\s*(\d+\.?\d*)\s*[\*x]\s*(\d+\.?\d*)\s*\)\s*\/\s*DIAMETER/i;
             const match = formulaString.match(regex);
             if (match && match.length === 3) {
                 const num1 = parseFloat(match[1]);
@@ -428,8 +428,10 @@
             const regexS = /S(\d+)/gi;
             const regexF = /F(\d+\.?\d*)/gi; 
             const regexG84 = /G84/gi;
-            const localRegexToolDia = /TOOL DIA\.?\s*[=\-]?\s*([+\-]?\d*\.?\d+)/gi;
-            const specialCommentRegex = /\(\s*T\d+\s*\|\s*([^|]+?)\s*\|\s*H\d+\s*\|\s*D\d+\s*\|\s*WEAR COMP\s*\|\s*TOOL DIA\.?\s*-\s*\d*\.?\d+\s*\)/gi;
+            const localRegexToolDia = /(DIAMETER\.?\s*[=\-]?\s*([+\-]?\d*\.?\d+))/gi; // Capture full string and numeric value
+            const specialCommentRegex = /\(\s*T\d+\s*\|\s*([^|]+?)\s*\|\s*H\d+\s*\|\s*D\d+\s*\|\s*WEAR COMP\s*\|\s*DIAMETER\.?\s*-\s*\d*\.?\d+\s*\)/gi;
+            // New regex for general DIAMETER comments
+            const generalDiameterCommentRegex = /\(\s*DIAMETER\s*=\s*[^)]+\)/gi;
 
             const tPatterns = new Map();
             const hPatterns = new Map();
@@ -437,8 +439,10 @@
             const sPatterns = new Map();
             const fPatterns = new Map();
             const g84Patterns = new Map();
-            const toolDiaPatterns = new Map();
+            const toolDiaPatterns = new Map(); // Stores full string like "DIAMETER - 0.1"
+            const fullDiameterPatterns = new Map(); // Stores full string like "DIAMETER - 0.1"
             const specialCommentDescriptions = new Map();
+            const generalDiameterComments = new Map(); // New map for general DIAMETER comments
 
             const lines = segmentContent.split('\n');
 
@@ -450,6 +454,15 @@
                     const description = match[1].trim();
                     if (description) {
                         specialCommentDescriptions.set(description, (specialCommentDescriptions.get(description) || 0) + 1);
+                    }
+                }
+
+                // Find general DIAMETER comments
+                generalDiameterCommentRegex.lastIndex = 0;
+                while ((match = generalDiameterCommentRegex.exec(line)) !== null) {
+                    const comment = match[0].trim();
+                    if (comment) {
+                        generalDiameterComments.set(comment, (generalDiameterComments.get(comment) || 0) + 1);
                     }
                 }
 
@@ -504,12 +517,13 @@
 
                 localRegexToolDia.lastIndex = 0;
                 while ((match = localRegexToolDia.exec(cleanedLine)) !== null) {
-                    const pattern = match[0];
-                    toolDiaPatterns.set(pattern, (toolDiaPatterns.get(pattern) || 0) + 1);
+                    const fullPattern = match[1]; // Capture the full matched string
+                    toolDiaPatterns.set(fullPattern, (toolDiaPatterns.get(fullPattern) || 0) + 1);
+                    fullDiameterPatterns.set(fullPattern, (fullDiameterPatterns.get(fullPattern) || 0) + 1); // Store full pattern
                 }
             });
 
-            return { tPatterns, hPatterns, dPatterns, sPatterns, fPatterns, g84Patterns, toolDiaPatterns, specialCommentDescriptions };
+            return { tPatterns, hPatterns, dPatterns, sPatterns, fPatterns, g84Patterns, toolDiaPatterns, fullDiameterPatterns, specialCommentDescriptions, generalDiameterComments };
         }
 
         function scanAndDisplayPatterns() {
@@ -529,12 +543,13 @@
                 const line = lines[i];
                 const trimmedLine = line.trim();
 
-                if (trimmedLine.toLowerCase().includes('m01')) {
+                // Updated to check for both M1 and M01 as delimiters
+                if (/\b(m1|m01)\b/.test(trimmedLine.toLowerCase()) && currentGroupContentLines.length > 0) {
                     groupCounter++;
                     const nMatchOnM01Line = trimmedLine.match(/N(\d+)/i);
                     const nValueForThisM01 = nMatchOnM01Line ? nMatchOnM01Line[0].toUpperCase() : null;
 
-                    const { tPatterns, hPatterns, dPatterns, sPatterns, fPatterns, g84Patterns, toolDiaPatterns, specialCommentDescriptions } = findPatternsInSegment(currentGroupContentLines.join('\n'));
+                    const { tPatterns, hPatterns, dPatterns, sPatterns, fPatterns, g84Patterns, toolDiaPatterns, fullDiameterPatterns, specialCommentDescriptions, generalDiameterComments } = findPatternsInSegment(currentGroupContentLines.join('\n'));
 
                     let nextToolForThisBlock = null;
                     if (blockTools.length > 0) {
@@ -557,7 +572,7 @@
 
                     currentGroupContentLines.forEach(segmentLine => {
                         const cleanedSegmentLine = cleanLineFromComments(segmentLine);
-                        const toolDiaMatch = cleanedSegmentLine.match(/TOOL DIA\.?\s*[=\-]?\s*([+\-]?\d*\.?\d+)/i);
+                        const toolDiaMatch = cleanedSegmentLine.match(/DIAMETER\.?\s*[=\-]?\s*([+\-]?\d*\.?\d+)/i);
                         if (toolDiaMatch) {
                             currentToolDiaForGroup = parseFloat(toolDiaMatch[1]);
                         }
@@ -580,9 +595,9 @@
                         }
                     });
 
-                    renderGroupPatterns(groupCounter, tPatterns, hPatterns, dPatterns, sPatterns, fPatterns, g84DetailsForGroup, toolDiaPatterns, specialCommentDescriptions, nValueForThisM01, true, nextToolForThisBlock);
+                    renderGroupPatterns(groupCounter, tPatterns, hPatterns, dPatterns, sPatterns, fPatterns, g84DetailsForGroup, toolDiaPatterns, fullDiameterPatterns, specialCommentDescriptions, generalDiameterComments, nValueForThisM01, true, nextToolForThisBlock);
                     
-                    if (tPatterns.size > 0 || hPatterns.size > 0 || dPatterns.size > 0 || sPatterns.size > 0 || fPatterns.size > 0 || g84Patterns.size > 0 || toolDiaPatterns.size > 0 || specialCommentDescriptions.size > 0 || nValueForThisM01) {
+                    if (tPatterns.size > 0 || hPatterns.size > 0 || dPatterns.size > 0 || sPatterns.size > 0 || fPatterns.size > 0 || g84Patterns.size > 0 || toolDiaPatterns.size > 0 || fullDiameterPatterns.size > 0 || specialCommentDescriptions.size > 0 || generalDiameterComments.size > 0 || nValueForThisM01) {
                         patternsFoundOverall = true;
                     }
 
@@ -594,7 +609,7 @@
 
             if (currentGroupContentLines.length > 0) {
                 groupCounter++;
-                const { tPatterns, hPatterns, dPatterns, sPatterns, fPatterns, g84Patterns, toolDiaPatterns, specialCommentDescriptions } = findPatternsInSegment(currentGroupContentLines.join('\n'));
+                const { tPatterns, hPatterns, dPatterns, sPatterns, fPatterns, g84Patterns, toolDiaPatterns, fullDiameterPatterns, specialCommentDescriptions, generalDiameterComments } = findPatternsInSegment(currentGroupContentLines.join('\n'));
 
                 let nextToolForThisBlock = null;
                 if (blockTools.length > 0) {
@@ -616,7 +631,7 @@
                 let currentToolDiaForGroup = null; 
                 currentGroupContentLines.forEach(segmentLine => {
                     const cleanedSegmentLine = cleanLineFromComments(segmentLine);
-                    const toolDiaMatch = cleanedSegmentLine.match(/TOOL DIA\.?\s*[=\-]?\s*([+\-]?\d*\.?\d+)/i);
+                    const toolDiaMatch = cleanedSegmentLine.match(/DIAMETER\.?\s*[=\-]?\s*([+\-]?\d*\.?\d+)/i);
                     if (toolDiaMatch) {
                         currentToolDiaForGroup = parseFloat(toolDiaMatch[1]);
                     }
@@ -639,8 +654,8 @@
                     }
                 });
 
-                renderGroupPatterns(groupCounter, tPatterns, hPatterns, dPatterns, sPatterns, fPatterns, g84DetailsForGroup, toolDiaPatterns, specialCommentDescriptions, null, false, nextToolForThisBlock);
-                if (tPatterns.size > 0 || hPatterns.size > 0 || dPatterns.size > 0 || sPatterns.size > 0 || fPatterns.size > 0 || g84Patterns.size > 0 || toolDiaPatterns.size > 0 || specialCommentDescriptions.size > 0) {
+                renderGroupPatterns(groupCounter, tPatterns, hPatterns, dPatterns, sPatterns, fPatterns, g84DetailsForGroup, toolDiaPatterns, fullDiameterPatterns, specialCommentDescriptions, generalDiameterComments, null, false, nextToolForThisBlock);
+                if (tPatterns.size > 0 || hPatterns.size > 0 || dPatterns.size > 0 || sPatterns.size > 0 || fPatterns.size > 0 || g84Patterns.size > 0 || toolDiaPatterns.size > 0 || fullDiameterPatterns.size > 0 || specialCommentDescriptions.size > 0 || generalDiameterComments.size > 0) {
                     patternsFoundOverall = true;
                 }
             }
@@ -648,14 +663,14 @@
             if (!patternsFoundOverall && groupCounter === 0) {
                 const noPatterns = document.createElement('p');
                 noPatterns.className = 'text-gray-500';
-                noPatterns.textContent = 'No T, H, D, S, F, G84, TOOL DIA., or special comment patterns with values found in any group.';
+                noPatterns.textContent = 'No T, H, D, S, F, G84, DIAMETER., or special comment patterns with values found in any group.';
                 patternListDiv.appendChild(noPatterns);
             }
 
             fillFindReplaceWithTPatterns();
         }
 
-        function renderGroupPatterns(groupNumber, tPatterns, hPatterns, dPatterns, sPatterns, fPatterns, g84DetailsForGroup, toolDiaPatterns, specialCommentDescriptions, nValueAssociatedWithM01, hasM01Separator, nextToolForThisGroup) {
+        function renderGroupPatterns(groupNumber, tPatterns, hPatterns, dPatterns, sPatterns, fPatterns, g84DetailsForGroup, toolDiaPatterns, fullDiameterPatterns, specialCommentDescriptions, generalDiameterComments, nValueAssociatedWithM01, hasM01Separator, nextToolForThisGroup) {
             const groupSection = document.createElement('div');
             groupSection.className = 'group-section';
 
@@ -692,6 +707,31 @@
                 patternsInGroupDiv.appendChild(patternRow);
             }
 
+            // New section for general DIAMETER comments
+            if (generalDiameterComments.size > 0) {
+                const patternRow = document.createElement('div');
+                patternRow.className = 'pattern-row';
+
+                const labelSpan = document.createElement('span');
+                labelSpan.className = 'pattern-label';
+                labelSpan.textContent = 'General Diameter Comments:';
+                patternRow.appendChild(labelSpan);
+
+                const valuesDiv = document.createElement('div');
+                valuesDiv.className = 'pattern-values';
+                generalDiameterComments.forEach((count, comment) => {
+                    patternsFoundInGroupContent = true;
+                    const item = document.createElement('span');
+                    item.className = 'pattern-item';
+                    item.textContent = comment;
+                    item.title = `Click to add '${comment}' to a Find field`;
+                    item.addEventListener('click', (event) => populateNextFindField(comment, event.target));
+                    valuesDiv.appendChild(item);
+                });
+                patternRow.appendChild(valuesDiv);
+                patternsInGroupDiv.appendChild(patternRow);
+            }
+
             if (tPatterns.size > 0) {
                 const patternRow = document.createElement('div');
                 patternRow.className = 'pattern-row';
@@ -718,7 +758,6 @@
                 patternsInGroupDiv.appendChild(patternRow);
             }
 
-            // Re-added the block for rendering "Next Tool (Calculated)" as non-clickable
             if (nextToolForThisGroup) {
                 const patternRow = document.createElement('div');
                 patternRow.className = 'pattern-row';
@@ -731,8 +770,8 @@
                 const valuesDiv = document.createElement('div');
                 valuesDiv.className = 'pattern-values';
                 const item = document.createElement('span');
-                item.className = 'non-clickable-pattern-item'; // Non-clickable
-                item.textContent = nextToolForThisGroup;
+                item.className = 'non-clickable-pattern-item';
+                item.textContent = `( TOOL CHANGE, TOOL ${nextToolForThisGroup} )`;
                 item.title = `This is the next tool in sequence: ${nextToolForThisGroup}`;
                 valuesDiv.appendChild(item);
                 patternRow.appendChild(valuesDiv);
@@ -862,6 +901,31 @@
                 patternsInGroupDiv.appendChild(patternRow);
             }
 
+            // Updated section for "DIAMETER Patterns" (non-clickable)
+            if (fullDiameterPatterns.size > 0) {
+                const patternRow = document.createElement('div');
+                patternRow.className = 'pattern-row';
+
+                const labelSpan = document.createElement('span');
+                labelSpan.className = 'pattern-label';
+                labelSpan.textContent = 'DIAMETER Patterns:'; // Changed label
+                patternRow.appendChild(labelSpan);
+
+                const valuesDiv = document.createElement('div');
+                valuesDiv.className = 'pattern-values';
+                fullDiameterPatterns.forEach((count, pattern) => { // Iterate over full patterns
+                    patternsFoundInGroupContent = true;
+                    const item = document.createElement('span');
+                    item.className = 'non-clickable-pattern-item'; // Non-clickable
+                    item.textContent = pattern; // Display the full pattern string
+                    item.title = `Full DIAMETER pattern: ${pattern}`;
+                    // No event listener for click
+                    valuesDiv.appendChild(item);
+                });
+                patternRow.appendChild(valuesDiv);
+                patternsInGroupDiv.appendChild(patternRow);
+            }
+
             if (g84DetailsForGroup.length > 0) {
                 const patternRow = document.createElement('div');
                 patternRow.className = 'pattern-row';
@@ -886,10 +950,10 @@
                 patternsInGroupDiv.appendChild(patternRow);
             }
 
-            if (!patternsFoundInGroupContent && (!nValueAssociatedWithM01 || nValueAssociatedWithM01 === 'N220') && specialCommentDescriptions.size === 0) { 
+            if (!patternsFoundInGroupContent && (!nValueAssociatedWithM01 || nValueAssociatedWithM01 === 'N220') && specialCommentDescriptions.size === 0 && generalDiameterComments.size === 0) { 
                 const noPatterns = document.createElement('p');
                 noPatterns.className = 'text-gray-500';
-                noPatterns.textContent = 'No T, H, D, S, F, G84, TOOL DIA., or special comment patterns with values found in any group.';
+                noPatterns.textContent = 'No T, H, D, S, F, G84, DIAMETER., or special comment patterns with values found in any group.';
                 patternListDiv.appendChild(noPatterns);
             }
 
@@ -899,7 +963,7 @@
             if (hasM01Separator) {
                 const m01Separator = document.createElement('p');
                 m01Separator.className = 'text-center text-gray-600 font-bold my-4';
-                m01Separator.textContent = '--- M01 ---';
+                m01Separator.textContent = '--- M1 ---';
                 patternListDiv.appendChild(m01Separator);
             }
         }
@@ -1078,7 +1142,8 @@
                 const line = lines[i];
                 const trimmedLine = line.trim();
 
-                if (trimmedLine.toLowerCase().includes('m01')) {
+                // Updated to check for both M1 and M01 as delimiters
+                if (/\b(m1|m01)\b/.test(trimmedLine.toLowerCase())) {
                     let tMatch = null;
                     for (const blockLine of currentBlockContentLines) {
                         const cleanedBlockLine = cleanLineFromComments(blockLine);
@@ -1124,8 +1189,8 @@
             const tempFConstants = parseFFormula(fFormulaInput.value);
 
             if (!tempSConstants) {
-                showMessage('Error: Invalid S Formula format. Using default: S = (3.82 * 800) / TOOL DIA', 'error');
-                sFormulaInput.value = "S = (3.82 * 800) / TOOL DIA"; 
+                showMessage('Error: Invalid S Formula format. Using default: S = (3.82 * 800) / DIAMETER', 'error');
+                sFormulaInput.value = "S = (3.82 * 800) / DIAMETER"; 
                 sFormulaConstants = { num1: 3.82, num2: 800 }; 
             } else {
                 sFormulaConstants = tempSConstants;
@@ -1218,10 +1283,7 @@
                 let nMatch = line.match(/N(\d+)/i);
                 let currentLineNValue = nMatch ? parseInt(nMatch[1], 10) : -1;
 
-                let tValueFoundOnM6Line = false; 
-                let tNumericValueFromM6Line = null; 
-                let tChangedByDirectReplaceOnThisLine = false;
-
+                // Declare these variables at the beginning of the forEach loop for each line
                 let sChangedOnThisLine = false; 
                 let fChangedOnThisLine = false; 
                 let toolDiaChangedOnThisLine = false; 
@@ -1230,9 +1292,19 @@
                 let fNewNumericValueForCurrentLine = null; 
                 let toolDiaNewNumericValueForCurrentLine = null; 
 
+                const sFormulaMatch = processedLine.match(/S\s*=\s*\(\s*(\d+\.?\d*)\s*[\*x]\s*(\d+\.?\d*)\s*\)\s*\/\s*DIAMETER/i);
+                if (sFormulaMatch) {
+                    sFormulaConstants = { num1: parseFloat(sFormulaMatch[1]), num2: parseFloat(sFormulaMatch[2]) };
+                }
+
+                const fFormulaMatch = processedLine.match(/F\s*=\s*S\s*[\*x]\s*(\d+\.?\d*)\s*[\*x]\s*(\d+\.?\d*)/i);
+                if (fFormulaMatch) {
+                    fFormulaConstants = { num1: parseFloat(fFormulaMatch[1]), num2: parseFloat(fFormulaMatch[2]) };
+                }
+
                 const originalCleanedLine = cleanLineFromComments(line);
 
-                const isM01Line = processedLine.toLowerCase().includes('m01');
+                const isM01Line = /\b(m1|m01)\b/.test(processedLine.toLowerCase());
                 if (isM01Line) {
                     propagateNewTNumericValue = null;
                     propagationStartNValue = -1;
@@ -1312,7 +1384,7 @@
                     });
                 });
 
-                const toolDiaMatchOnProcessedLine = processedLine.match(/TOOL DIA\.?\s*[=\-]?\s*([+\-]?\d*\.?\d+)/i);
+                const toolDiaMatchOnProcessedLine = processedLine.match(/DIAMETER\.?\s*[=\-]?\s*([+\-]?\d*\.?\d+)/i);
                 if (toolDiaMatchOnProcessedLine) {
                     currentGroupToolDiaValue = parseFloat(toolDiaMatchOnProcessedLine[1]);
                 }
@@ -1445,6 +1517,51 @@
             currentFindInputIndex = 0; 
         });
 
+        // Refined function to parse the file into tool blocks with detailed info
+        function parseToolBlocksDetailed(content) {
+            const lines = content.split('\n');
+            const blocks = [];
+            let currentBlock = {
+                lines: [],
+                tM6LineIndexInBlock: -1, // Index of T#M6 line within currentBlock.lines
+                toolChangeCommentIndexInBlock: -1, // Index of (TOOL CHANGE, TOOL #) within currentBlock.lines
+                actualTool: null, // T# from T#M6
+                nextToolValue: null // Calculated next tool
+            };
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                const trimmedLine = line.trim();
+
+                // Updated to check for both M1 and M01 as delimiters
+                if (/\b(m1|m01)\b/.test(trimmedLine.toLowerCase()) && currentBlock.lines.length > 0) {
+                    blocks.push({ ...currentBlock }); // Push a copy
+                    currentBlock = { lines: [], tM6LineIndexInBlock: -1, toolChangeCommentIndexInBlock: -1, actualTool: null, nextToolValue: null };
+                }
+
+                // Add line to current block
+                currentBlock.lines.push(line);
+
+                // Check for T#M6 line
+                const tM6Match = trimmedLine.match(/(T\d+)\s*M6/i);
+                if (tM6Match) {
+                    currentBlock.tM6LineIndexInBlock = currentBlock.lines.length - 1;
+                    currentBlock.actualTool = tM6Match[1].toUpperCase();
+                }
+
+                // Check for ( TOOL CHANGE, TOOL T# ) comment line
+                const toolChangeCommentMatch = trimmedLine.match(/^\(\s*TOOL CHANGE,\s*TOOL\s*(T\d+|#\d+)\s*\)/i);
+                if (toolChangeCommentMatch) {
+                    currentBlock.toolChangeCommentIndexInBlock = currentBlock.lines.length - 1;
+                }
+            }
+            // Add the last block if it exists
+            if (currentBlock.lines.length > 0) {
+                blocks.push({ ...currentBlock });
+            }
+            return blocks;
+        }
+
         applyNextToolButton.addEventListener('click', () => {
             clearMessageBox();
             if (hasAppliedNextToolLogic) {
@@ -1458,80 +1575,113 @@
                 return;
             }
 
-            const originalLines = fullContent.split('\n');
-            const linesWithInsertions = []; 
-            const blockTools = getBlockTools(fullContent);
+            // Parse blocks with detailed info
+            let blocks = parseToolBlocksDetailed(fileContentTextArea.value);
 
-            let currentBlockIndex = -1;
-            let changesMade = 0;
-
-            originalLines.forEach((line, lineIndex) => {
-                linesWithInsertions.push(line); 
-
-                const isM01Line = line.toLowerCase().includes('m01');
-                if (isM01Line) {
-                    currentBlockIndex++;
-                }
-
-                const tM6Regex = /(T\d+)\s*M6/i;
-                const tM6Match = line.match(tM6Regex); 
-
-                if (tM6Match) {
-                    const currentToolOnly = tM6Match[1].match(/T(\d+)/i)[0]; 
-
-                    let nextToolValue = null;
-                    if (blockTools.length > 0) {
-                        const currentToolIndexInBlockTools = blockTools.indexOf(currentToolOnly);
-                        if (currentToolIndexInBlockTools !== -1) {
-                            const nextBlockToolIndex = (currentToolIndexInBlockTools + 1) % blockTools.length;
-                            nextToolValue = blockTools[nextBlockToolIndex];
-                        }
-                    }
-
-                    if (nextToolValue) {
-                        const currentToolNumeric = parseInt(currentToolOnly.replace('T', ''), 10);
-                        const nextToolNumeric = parseInt(nextToolValue.replace('T', ''), 10);
-
-                        if (currentToolNumeric !== nextToolNumeric) {
-                            linesWithInsertions.push(`   ${nextToolValue}`); 
-                            changesMade++;
-                        }
-                    }
+            // Determine nextToolValue for each block
+            const allToolsInOrder = [];
+            blocks.forEach(block => {
+                if (block.actualTool) {
+                    allToolsInOrder.push(block.actualTool);
                 }
             });
 
+            for (let i = 0; i < blocks.length; i++) {
+                const block = blocks[i];
+                if (block.actualTool) {
+                    const currentToolIndex = allToolsInOrder.indexOf(block.actualTool);
+                    if (currentToolIndex !== -1 && currentToolIndex < allToolsInOrder.length - 1) {
+                        block.nextToolValue = allToolsInOrder[currentToolIndex + 1];
+                    } else {
+                        block.nextToolValue = null; // Last tool, no next tool
+                    }
+                }
+            }
+
             const finalLines = [];
-            let currentN = 10; 
+            let changesMade = 0;
+
+            blocks.forEach(block => {
+                let tM6LineEncountered = false;
+                let nakedTInsertedForBlock = false;
+
+                block.lines.forEach((line, lineIndexInBlock) => {
+                    const trimmedLine = line.trim();
+
+                    // Handle existing tool change comment
+                    if (lineIndexInBlock === block.toolChangeCommentIndexInBlock) {
+                        if (block.nextToolValue) {
+                            finalLines.push(`( TOOL CHANGE, TOOL ${block.nextToolValue} )`);
+                            changesMade++;
+                        } else {
+                            // If it's the last tool, or no next tool, keep the original comment
+                            finalLines.push(line);
+                        }
+                    } else {
+                        finalLines.push(line); // Add the original line
+                    }
+
+                    // Check if the current line is the T#M6 line
+                    if (lineIndexInBlock === block.tM6LineIndexInBlock) {
+                        tM6LineEncountered = true;
+                    }
+
+                    // Insert naked T line after T#M6 if it hasn't been inserted for this block yet
+                    // and if we've passed the T#M6 line, and there's a next tool
+                    if (tM6LineEncountered && block.nextToolValue && !nakedTInsertedForBlock && lineIndexInBlock === block.tM6LineIndexInBlock) {
+                        // Check if the next line in the original block is already the naked T-line
+                        const nextLineInOriginalBlock = block.lines[lineIndexInBlock + 1];
+                        if (!nextLineInOriginalBlock || nextLineInOriginalBlock.trim().toUpperCase() !== block.nextToolValue.toUpperCase()) {
+                             finalLines.push(` ${block.nextToolValue}`);
+                             changesMade++;
+                        }
+                        nakedTInsertedForBlock = true;
+                    }
+                });
+            });
+
+            // Re-index N values in finalLines
+            const reIndexedLines = [];
+            let currentN = 10; // Default starting N value
             const nIncrement = 5; 
 
-            let firstNFound = false;
-            for (const line of linesWithInsertions) {
+            // Find the starting N value from the first N line in the original file, if any
+            let firstNFoundInFinalLines = false;
+            for (const line of finalLines) {
                 const nMatch = line.match(/^N(\d+)/i);
                 if (nMatch) {
                     currentN = parseInt(nMatch[1], 10);
-                    firstNFound = true;
+                    firstNFoundInFinalLines = true;
                     break;
                 }
             }
 
-            linesWithInsertions.forEach(line => {
+            finalLines.forEach(line => {
                 let modifiedLine = line;
-                const nMatch = line.match(/^N(\d+)/i);
+                const trimmedLine = line.trim();
 
-                if (nMatch) {
-                    modifiedLine = `N${currentN} ` + line.substring(nMatch[0].length).trim();
-                    currentN += nIncrement;
-                } else if (line.trim().startsWith('T') && line.trim().length > 1) { 
-                    modifiedLine = `N${currentN} ${line.trim()}`;
-                    currentN += nIncrement;
+                // Only exclude the (TOOL CHANGE, TOOL T#) comment from N-indexing
+                if (trimmedLine.startsWith('( TOOL CHANGE, TOOL T')) {
+                    reIndexedLines.push(modifiedLine); // Add as is, no N
+                } else {
+                    const nMatch = line.match(/^N(\d+)/i);
+                    if (nMatch) {
+                        // If it already has an N, update it
+                        modifiedLine = `N${currentN} ` + line.substring(nMatch[0].length).trim();
+                        currentN += nIncrement;
+                    } else if (trimmedLine.length > 0) { 
+                        // If it doesn't have an N but has content, add an N
+                        modifiedLine = `N${currentN} ${trimmedLine}`;
+                        currentN += nIncrement;
+                    }
+                    reIndexedLines.push(modifiedLine);
                 }
-                finalLines.push(modifiedLine);
             });
 
-            fileContentTextArea.value = finalLines.join('\n');
+            fileContentTextArea.value = reIndexedLines.join('\n');
 
             if (changesMade > 0) {
-                showMessage(`${changesMade} 'Next Tool' lines inserted and N values re-indexed!`, 'success');
+                showMessage(`${changesMade} 'Next Tool' lines inserted/updated and N values re-indexed!`, 'success');
                 hasAppliedNextToolLogic = true;
                 applyNextToolButton.classList.add('button-disabled');
                 applyNextToolButton.disabled = true;
@@ -1590,13 +1740,14 @@
 
         window.addEventListener('load', () => {
             createInputPairs();
-            sFormulaInput.value = `S = (${sFormulaConstants.num1} * ${sFormulaConstants.num2}) / TOOL DIA`;
+            sFormulaInput.value = `S = (${sFormulaConstants.num1} * ${sFormulaConstants.num2}) / DIAMETER`;
             fFormulaInput.value = `F = S * ${fFormulaConstants.num1} * ${fFormulaConstants.num2}`;
             scanAndDisplayPatterns(); 
         });
     </script>
 </body>
 </html>
+
 
 
 
