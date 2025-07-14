@@ -1,4 +1,4 @@
- <!DOCTYPE html>
+  <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -479,8 +479,7 @@
             const regexG84 = /G84/gi;
             const localRegexToolDia = /(DIAMETER\.?\s*[=\-]?\s*([+\-]?\d*\.?\d+))/gi; // Capture full string and numeric value
             const specialCommentRegex = /\(\s*T\d+\s*\|\s*([^|]+?)\s*\|\s*H\d+\s*\|\s*D\d+\s*\|\s*WEAR COMP\s*\|\s*DIAMETER\.?\s*-\s*\d*\.?\d+\s*\)/gi;
-            // New regex for general DIAMETER comments
-            const generalDiameterCommentRegex = /\(\s*DIAMETER\s*=\s*[^)]+\)/gi;
+            // Removed generalDiameterCommentRegex and generalDiameterComments map as they are now handled specifically
 
             const tPatterns = new Map();
             const hPatterns = new Map();
@@ -491,7 +490,6 @@
             const toolDiaPatterns = new Map(); // Stores full string like "DIAMETER - 0.1"
             const fullDiameterPatterns = new Map(); // Stores full string like "DIAMETER - 0.1"
             const specialCommentDescriptions = new Map();
-            const generalDiameterComments = new Map(); // New map for general DIAMETER comments
 
             const lines = segmentContent.split('\n');
 
@@ -503,15 +501,6 @@
                     const description = match[1].trim();
                     if (description) {
                         specialCommentDescriptions.set(description, (specialCommentDescriptions.get(description) || 0) + 1);
-                    }
-                }
-
-                // Find general DIAMETER comments
-                generalDiameterCommentRegex.lastIndex = 0;
-                while ((match = generalDiameterCommentRegex.exec(line)) !== null) {
-                    const comment = match[0].trim();
-                    if (comment) {
-                        generalDiameterComments.set(comment, (generalDiameterComments.get(comment) || 0) + 1);
                     }
                 }
 
@@ -568,7 +557,7 @@
                 }
             });
 
-            return { tPatterns, hPatterns, dPatterns, sPatterns, fPatterns, g84Patterns, toolDiaPatterns, fullDiameterPatterns, specialCommentDescriptions, generalDiameterComments };
+            return { tPatterns, hPatterns, dPatterns, sPatterns, fPatterns, g84Patterns, toolDiaPatterns, fullDiameterPatterns, specialCommentDescriptions };
         }
 
         function scanAndDisplayPatterns() {
@@ -594,9 +583,10 @@
                 let blockActiveToolNumeric = null; // This will be passed to renderGroupPatterns
 
                 // Determine the label for the current block
+                // Skip rendering 'File Preamble' in the patterns section if it's the very first block and has no actual tool
                 if (block.actualTool === null && groupCounter === 0 && tM6LineIndices.length > 0) {
-                    // This is the initial preamble block (before the first T#M6)
-                    displayToolPathLabel = 'File Preamble';
+                    // This is the initial preamble block, do not assign a display label to skip rendering
+                    displayToolPathLabel = ''; // Set to empty string to indicate it should not be rendered
                 } else if (block.actualTool) {
                     // This is a tool operation block (starts with or contains a T#M6)
                     toolPathCounter++;
@@ -614,53 +604,60 @@
                     displayToolPathLabel = 'File Content (No Tool Changes)';
                 }
 
-                const { tPatterns, hPatterns, dPatterns, sPatterns, fPatterns, g84Patterns, toolDiaPatterns, fullDiameterPatterns, specialCommentDescriptions, generalDiameterComments } = findPatternsInSegment(block.lines.join('\n'));
+                // Only render the group if it has a valid display label
+                if (displayToolPathLabel) {
+                    // --- NEW DIAGNOSTIC LOG ---
+                    console.log(`[Display] Rendering Block: ${displayToolPathLabel}, First Line: "${block.lines[0] ? block.lines[0].trim().substring(0, 50) + '...' : '[Empty Block]'}"`);
+                    // --- END NEW DIAGNOSTIC LOG ---
 
-                let nextToolForThisBlock = block.nextToolValue;
+                    const { tPatterns, hPatterns, dPatterns, sPatterns, fPatterns, g84Patterns, toolDiaPatterns, fullDiameterPatterns, specialCommentDescriptions } = findPatternsInSegment(block.lines.join('\n'));
 
-                // Collect all T patterns from the entire file for auto-population, not just within the current block
-                const blockTPatterns = Array.from(tPatterns.keys());
-                blockTPatterns.forEach(pattern => {
-                    if (!allDetectedTPatterns.includes(pattern)) {
-                        allDetectedTPatterns.push(pattern);
-                    }
-                });
+                    let nextToolForThisBlock = block.nextToolValue;
 
-
-                const g84DetailsForGroup = [];
-                let currentToolDiaForGroup = null;
-
-                block.lines.forEach(segmentLine => {
-                    const cleanedSegmentLine = cleanLineFromComments(segmentLine);
-                    const toolDiaMatch = cleanedSegmentLine.match(/DIAMETER\.?\s*[=\-]?\s*([+\-]?\d*\.?\d+)/i);
-                    if (toolDiaMatch) {
-                        currentToolDiaForGroup = parseFloat(toolDiaMatch[1]);
-                    }
-
-                    if (cleanedSegmentLine.includes('G84')) {
-                        const nMatch = cleanedSegmentLine.match(/N(\d+)/i);
-                        const nValue = nMatch ? nMatch[0].toUpperCase() : 'N/A';
-                        
-                        let suggestedS = 'N/A';
-                        let suggestedF = 'N/A';
-
-                        if (currentToolDiaForGroup !== null && !isNaN(currentToolDiaForGroup) && currentToolDiaForGroup !== 0) {
-                            suggestedS = Math.round((sFormulaConstants.num1 * sFormulaConstants.num2) / currentToolDiaForGroup);
-                            if (suggestedS > 15000) suggestedS = 15000;
-
-                            suggestedF = (suggestedS * fFormulaConstants.num1 * fFormulaConstants.num2).toFixed(3);
-                            if (suggestedF > 30) suggestedF = 30; // Changed from 40 to 30
+                    // Collect all T patterns from the entire file for auto-population, not just within the current block
+                    const blockTPatterns = Array.from(tPatterns.keys());
+                    blockTPatterns.forEach(pattern => {
+                        if (!allDetectedTPatterns.includes(pattern)) {
+                            allDetectedTPatterns.push(pattern);
                         }
-                        g84DetailsForGroup.push({ nValue, suggestedS, suggestedF });
-                    }
-                });
+                    });
 
-                // Pass block.actualTool directly to renderGroupPatterns, as it's the correct tool for the block.
-                // blockActiveToolNumeric is correctly derived from block.actualTool.
-                renderGroupPatterns(displayToolPathLabel, tPatterns, hPatterns, dPatterns, sPatterns, fPatterns, g84DetailsForGroup, toolDiaPatterns, fullDiameterPatterns, specialCommentDescriptions, generalDiameterComments, block.actualTool, block.actualTool !== null, nextToolForThisBlock, blockActiveToolNumeric);
-                
-                if (tPatterns.size > 0 || hPatterns.size > 0 || dPatterns.size > 0 || sPatterns.size > 0 || fPatterns.size > 0 || g84Patterns.size > 0 || toolDiaPatterns.size > 0 || fullDiameterPatterns.size > 0 || specialCommentDescriptions.size > 0 || generalDiameterComments.size > 0 || block.actualTool) {
-                    patternsFoundOverall = true;
+
+                    const g84DetailsForGroup = [];
+                    let currentToolDiaForGroup = null;
+
+                    block.lines.forEach(segmentLine => {
+                        const cleanedSegmentLine = cleanLineFromComments(segmentLine);
+                        const toolDiaMatch = cleanedSegmentLine.match(/DIAMETER\.?\s*[=\-]?\s*([+\-]?\d*\.?\d+)/i);
+                        if (toolDiaMatch) {
+                            currentToolDiaForGroup = parseFloat(toolDiaMatch[1]);
+                        }
+
+                        if (cleanedSegmentLine.includes('G84')) {
+                            const nMatch = cleanedSegmentLine.match(/N(\d+)/i);
+                            const nValue = nMatch ? nMatch[0].toUpperCase() : 'N/A';
+                            
+                            let suggestedS = 'N/A';
+                            let suggestedF = 'N/A';
+
+                            if (currentToolDiaForGroup !== null && !isNaN(currentToolDiaForGroup) && currentToolDiaForGroup !== 0) {
+                                suggestedS = Math.round((sFormulaConstants.num1 * sFormulaConstants.num2) / currentToolDiaForGroup);
+                                if (suggestedS > 15000) suggestedS = 15000;
+
+                                suggestedF = (suggestedS * fFormulaConstants.num1 * fFormulaConstants.num2).toFixed(3);
+                                if (suggestedF > 30) suggestedF = 30; // Changed from 40 to 30
+                            }
+                            g84DetailsForGroup.push({ nValue, suggestedS, suggestedF });
+                        }
+                    });
+
+                    // Pass block.actualTool directly to renderGroupPatterns, as it's the correct tool for the block.
+                    // blockActiveToolNumeric is correctly derived from block.actualTool.
+                    renderGroupPatterns(displayToolPathLabel, tPatterns, hPatterns, dPatterns, sPatterns, fPatterns, g84DetailsForGroup, toolDiaPatterns, fullDiameterPatterns, specialCommentDescriptions, block.actualTool, block.actualTool !== null, nextToolForThisBlock, blockActiveToolNumeric, block.leadingDiameterComment);
+                    
+                    if (tPatterns.size > 0 || hPatterns.size > 0 || dPatterns.size > 0 || sPatterns.size > 0 || fPatterns.size > 0 || g84Patterns.size > 0 || toolDiaPatterns.size > 0 || fullDiameterPatterns.size > 0 || specialCommentDescriptions.size > 0 || block.actualTool || block.leadingDiameterComment) {
+                        patternsFoundOverall = true;
+                    }
                 }
             });
 
@@ -675,7 +672,12 @@
             updateDownloadButtonState(); // Update download button state after scan
         }
 
-        function renderGroupPatterns(displayLabel, tPatterns, hPatterns, dPatterns, sPatterns, fPatterns, g84DetailsForGroup, toolDiaPatterns, fullDiameterPatterns, specialCommentDescriptions, generalDiameterComments, toolValueForThisGroup, hasToolDelimiter, nextToolForThisGroup, currentBlockActiveToolNumeric) {
+        function renderGroupPatterns(displayLabel, tPatterns, hPatterns, dPatterns, sPatterns, fPatterns, g84DetailsForGroup, toolDiaPatterns, fullDiameterPatterns, specialCommentDescriptions, toolValueForThisGroup, hasToolDelimiter, nextToolForThisGroup, currentBlockActiveToolNumeric, leadingDiameterCommentForThisGroup) {
+            // If displayLabel is empty, we should not render this group at all.
+            if (!displayLabel) {
+                return;
+            }
+
             const groupSection = document.createElement('div');
             groupSection.className = 'group-section';
 
@@ -691,56 +693,29 @@
             // Use the passed currentBlockActiveToolNumeric for H/D matching
             const toolNumericValue = currentBlockActiveToolNumeric;
 
-            if (specialCommentDescriptions.size > 0) {
+            // Display the leading diameter comment if found - NEW SECTION
+            if (leadingDiameterCommentForThisGroup) {
                 const patternRow = document.createElement('div');
                 patternRow.className = 'pattern-row';
 
                 const labelSpan = document.createElement('span');
                 labelSpan.className = 'pattern-label';
-                labelSpan.textContent = 'Comment Descriptions:';
+                labelSpan.textContent = 'Tool Diameter Comment:'; // More specific label
                 patternRow.appendChild(labelSpan);
 
                 const valuesDiv = document.createElement('div');
                 valuesDiv.className = 'pattern-values';
-                specialCommentDescriptions.forEach((count, description) => {
-                    patternsFoundInGroupContent = true;
-                    const item = document.createElement('span');
-                    item.className = 'pattern-item';
-                    item.textContent = description;
-                    item.title = `Click to add '${description}' to a Find field`;
-                    item.addEventListener('click', (event) => populateNextFindField(description, event.target));
-                    valuesDiv.appendChild(item);
-                });
+                const item = document.createElement('span');
+                item.className = 'non-clickable-pattern-item'; // This is a comment, not directly actionable
+                item.textContent = leadingDiameterCommentForThisGroup;
+                item.title = `Leading Diameter Comment: ${leadingDiameterCommentForThisGroup}`;
+                valuesDiv.appendChild(item);
                 patternRow.appendChild(valuesDiv);
                 patternsInGroupDiv.appendChild(patternRow);
+                patternsFoundInGroupContent = true;
             }
 
-            // New section for general DIAMETER comments
-            if (generalDiameterComments.size > 0) {
-                const patternRow = document.createElement('div');
-                patternRow.className = 'pattern-row';
-
-                const labelSpan = document.createElement('span');
-                labelSpan.className = 'pattern-label';
-                labelSpan.textContent = 'General Diameter Comments:';
-                patternRow.appendChild(labelSpan);
-
-                const valuesDiv = document.createElement('div');
-                valuesDiv.className = 'pattern-values';
-                generalDiameterComments.forEach((count, comment) => {
-                    patternsFoundInGroupContent = true;
-                    const item = document.createElement('span');
-                    item.className = 'pattern-item';
-                    item.textContent = comment;
-                    item.title = `Click to add '${comment}' to a Find field`;
-                    item.addEventListener('click', (event) => populateNextFindField(comment, event.target));
-                    valuesDiv.appendChild(item);
-                });
-                patternRow.appendChild(valuesDiv);
-                patternsInGroupDiv.appendChild(patternRow);
-            }
-
-            // Display the actual tool for the group if available
+            // Display the actual tool for the group if available (MOVED TO TOP)
             if (toolValueForThisGroup) { 
                 const patternRow = document.createElement('div');
                 patternRow.className = 'pattern-row';
@@ -784,6 +759,32 @@
                 patternsInGroupDiv.appendChild(patternRow);
                 patternsFoundInGroupContent = true;
             }
+
+            if (specialCommentDescriptions.size > 0) {
+                const patternRow = document.createElement('div');
+                patternRow.className = 'pattern-row';
+
+                const labelSpan = document.createElement('span');
+                labelSpan.className = 'pattern-label';
+                labelSpan.textContent = 'Comment Descriptions:';
+                patternRow.appendChild(labelSpan);
+
+                const valuesDiv = document.createElement('div');
+                valuesDiv.className = 'pattern-values';
+                specialCommentDescriptions.forEach((count, description) => {
+                    patternsFoundInGroupContent = true;
+                    const item = document.createElement('span');
+                    item.className = 'pattern-item';
+                    item.textContent = description;
+                    item.title = `Click to add '${description}' to a Find field`;
+                    item.addEventListener('click', (event) => populateNextFindField(description, event.target));
+                    valuesDiv.appendChild(item);
+                });
+                patternRow.appendChild(valuesDiv);
+                patternsInGroupDiv.appendChild(patternRow);
+            }
+
+            // Removed generalDiameterComments section as it's replaced by leadingDiameterCommentForThisGroup
 
             if (hPatterns.size > 0) {
                 const patternRow = document.createElement('div');
@@ -988,7 +989,7 @@
                 patternsInGroupDiv.appendChild(patternRow);
             }
 
-            if (!patternsFoundInGroupContent && (!toolValueForThisGroup || toolValueForThisGroup === 'N220') && specialCommentDescriptions.size === 0 && generalDiameterComments.size === 0) { 
+            if (!patternsFoundInGroupContent && (!toolValueForThisGroup || toolValueForThisGroup === 'N220') && specialCommentDescriptions.size === 0 && !leadingDiameterCommentForThisGroup) { 
                 const noPatterns = document.createElement('p');
                 noPatterns.className = 'text-gray-500';
                 noPatterns.textContent = 'No T, H, D, S, F, G84, DIAMETER., or special comment patterns with values found in any group.';
@@ -1167,7 +1168,7 @@
         function parseToolBlocksDetailed(content) {
             const lines = content.split('\n');
             const blocks = [];
-            const tM6LineIndices = []; // Store actual indices of T#M6 lines in the original content
+            const tM6LineIndices = [];
 
             // First pass: Identify all T#M6 lines and their indices
             lines.forEach((line, index) => {
@@ -1177,66 +1178,107 @@
                 }
             });
 
-            let currentBlockStartIndex = 0; // Start of the current segment being considered for a block
+            let lastBlockEndIndex = -1; // Tracks the last line index of the previous block
 
-            // If no T#M6 lines are found, the entire content is one block
-            if (tM6LineIndices.length === 0) {
+            // Handle the preamble block (everything before the first T#M6's logical start)
+            if (tM6LineIndices.length > 0) {
+                let firstToolLogicalStart = tM6LineIndices[0];
+                // Look backward from the first T#M6 to find the start of its logical block
+                // This includes blank lines and comments (especially tool change or diameter comments)
+                for (let i = tM6LineIndices[0] - 1; i >= 0; i--) {
+                    const line = lines[i].trim();
+                    if (line === '' || (line.startsWith('(') && (line.toLowerCase().includes('tool change') || line.toLowerCase().includes('diameter') || line.toLowerCase().includes('operation') || line.toLowerCase().includes('cs#') || line.toLowerCase().includes('rod stop')))) {
+                        firstToolLogicalStart = i;
+                    } else {
+                        // Found a non-comment/non-blank line that doesn't seem to be a tool-related comment
+                        break;
+                    }
+                }
+
+                if (firstToolLogicalStart > 0) { // If there's content before the first tool's logical start
+                    const preambleLines = lines.slice(0, firstToolLogicalStart);
+                    if (preambleLines.some(line => line.trim() !== '' && !line.trim().startsWith('('))) {
+                        // Only add preamble block if it contains actual code/non-comment lines
+                        blocks.push({
+                            lines: preambleLines,
+                            actualTool: null,
+                            tM6LineIndexInBlock: -1,
+                            toolChangeCommentIndexInBlock: -1,
+                            leadingDiameterComment: null, // Preamble won't have a *leading* diameter comment for a T#M6
+                            nextToolValue: null
+                        });
+                        console.log(`[Parse] Preamble Block (lines ${0}-${firstToolLogicalStart - 1}):`, preambleLines.map(l => l.trim().substring(0, 30) + '...'));
+                    }
+                }
+                lastBlockEndIndex = firstToolLogicalStart - 1; // Update last processed index for subsequent blocks
+            } else {
+                // If no T#M6 lines at all, whole file is one block ("File Content (No Tool Changes)")
                 blocks.push({
                     lines: lines,
                     actualTool: null,
                     tM6LineIndexInBlock: -1,
-                    toolChangeCommentIndexInBlock: lines.findIndex(l => l.trim().match(/^\(\s*TOOL CHANGE,\s*TOOL\s*(T\d+|#\d+)\s*\)/i)),
+                    toolChangeCommentIndexInBlock: -1,
+                    leadingDiameterComment: null,
                     nextToolValue: null
                 });
+                console.log(`[Parse] Single Block (no T#M6):`, lines.map(l => l.trim().substring(0, 30) + '...'));
                 return { blocks, tM6LineIndices };
             }
 
-            // Process blocks based on T#M6 delimiters
+            // Process blocks starting with each T#M6, including preceding comments
             for (let i = 0; i < tM6LineIndices.length; i++) {
                 const tM6CurrentIndex = tM6LineIndices[i];
                 const tM6LineContent = lines[tM6CurrentIndex];
                 const tM6Match = tM6LineContent.match(/(T(\d+))\s*M6/i);
                 const toolValue = tM6Match ? tM6Match[1].toUpperCase() : null;
 
-                // Determine the logical start of this tool's block (including preceding comments/blanks)
-                let logicalBlockStart = tM6CurrentIndex;
-                while (logicalBlockStart > currentBlockStartIndex) {
-                    const prevLine = lines[logicalBlockStart - 1];
-                    const trimmedPrevLine = prevLine.trim();
-                    if (trimmedPrevLine === '' || trimmedPrevLine.startsWith('(')) {
-                        logicalBlockStart--;
+                // Determine the logical start of this tool's block by looking backwards from tM6CurrentIndex
+                let blockStart = tM6CurrentIndex;
+                let foundLeadingDiameterComment = null; // New variable to store the comment
+
+                for (let j = tM6CurrentIndex - 1; j > lastBlockEndIndex; j--) {
+                    const line = lines[j].trim();
+                    if (line.startsWith('(') && line.toLowerCase().includes('diameter')) {
+                        foundLeadingDiameterComment = lines[j]; // Store the full line (most recent diameter comment)
+                        blockStart = j; // This line is part of the block
+                    } else if (line === '' || (line.startsWith('(') && (line.toLowerCase().includes('tool change') || line.toLowerCase().includes('operation') || line.toLowerCase().includes('cs#') || line.toLowerCase().includes('rod stop')))) {
+                        blockStart = j; // These are also part of the block
                     } else {
+                        // Found a non-comment/non-blank line that doesn't seem to be a tool-related comment
                         break;
                     }
                 }
                 
-                let nextT6Index = (i + 1 < tM6LineIndices.length) ? tM6LineIndices[i + 1] : lines.length;
-                const blockLines = lines.slice(logicalBlockStart, nextT6Index);
+                let nextBlockStartIndex = (i + 1 < tM6LineIndices.length) ? tM6LineIndices[i + 1] : lines.length;
+
+                const blockLines = lines.slice(blockStart, nextBlockStartIndex);
                 
                 blocks.push({
                     lines: blockLines,
                     actualTool: toolValue,
-                    // Find indices within the *newly sliced* blockLines array
-                    tM6LineIndexInBlock: blockLines.findIndex(l => l.trim().match(/(T\d+)\s*M6/i)),
+                    // tM6LineIndexInBlock is now relative to the start of this block
+                    tM6LineIndexInBlock: tM6CurrentIndex - blockStart,
                     toolChangeCommentIndexInBlock: blockLines.findIndex(l => l.trim().match(/^\(\s*TOOL CHANGE,\s*TOOL\s*(T\d+|#\d+)\s*\)/i)),
-                    nextToolValue: null // Will be filled in second pass
+                    leadingDiameterComment: foundLeadingDiameterComment, // Add this
+                    nextToolValue: null
                 });
-
-                // Set the start for the next block to be immediately after the current block's end
-                currentBlockStartIndex = nextT6Index;
+                console.log(`[Parse] Tool Block ${toolValue} (lines ${blockStart}-${nextBlockStartIndex - 1}):`, blockLines.map(l => l.trim().substring(0, 30) + '...'));
+                lastBlockEndIndex = nextBlockStartIndex - 1; // Update last processed index
             }
 
-            // Handle any remaining lines after the last T#M6 (if any)
-            if (currentBlockStartIndex < lines.length) {
-                const remainingLines = lines.slice(currentBlockStartIndex);
+            // Handle any remaining lines after the last T#M6 block (if any)
+            if (lastBlockEndIndex < lines.length - 1) {
+                const remainingLines = lines.slice(lastBlockEndIndex + 1);
                 if (remainingLines.length > 0) {
                     blocks.push({
                         lines: remainingLines,
-                        actualTool: null, // No specific tool for this trailing segment
+                        actualTool: null,
                         tM6LineIndexInBlock: -1,
-                        toolChangeCommentIndexInBlock: remainingLines.findIndex(l => l.trim().match(/^\(\s*TOOL CHANGE,\s*TOOL\s*(T\d+|#\d+)\s*\)/i)),
+                        toolChangeCommentIndexInBlock: -1,
+                        leadingDiameterComment: null,
                         nextToolValue: null
                     });
+                    console.log(`[Parse] Remaining Content Block (lines ${lastBlockEndIndex + 1}-${lines.length - 1}):`, remainingLines.map(l => l.trim().substring(0, 30) + '...'));
                 }
             }
 
@@ -1251,20 +1293,18 @@
                     if (currentToolIndexInList !== -1 && (currentToolIndexInList + 1) < allActualToolsInOrder.length) {
                         block.nextToolValue = allActualToolsInOrder[currentToolIndexInList + 1];
                     } else if (i === blocks.length - 1 && firstToolInFile) {
-                        // If it's the last block with an actual tool, set nextToolValue to the first tool in the file
                         block.nextToolValue = firstToolInFile;
                     } else {
                         block.nextToolValue = null;
                     }
                 } else if (block.actualTool === null && i === 0 && allActualToolsInOrder.length > 0) {
-                    // This is the initial preamble block (if it exists), its next tool is the first actual tool of the file
                     block.nextToolValue = allActualToolsInOrder[0];
                 } else {
-                    block.nextToolValue = null; // No active tool, no next tool
+                    block.nextToolValue = null;
                 }
             }
             
-            return { blocks, tM6LineIndices }; // Keep tM6LineIndices for scanAndDisplayPatterns's preamble check
+            return { blocks, tM6LineIndices };
         }
 
         function scanAndReplaceAllLogic(performReplacement = true) {
@@ -1406,7 +1446,7 @@
 
                         currentLineContent = currentLineContent.replace(regexHDOutsideComments, (fullMatch, prefix, valueStr) => {
                             const numericValue = parseFloat(valueStr);
-                            let finalValue = valueStr; // Default to original string value
+                            let finalValue = String(valueStr); // Default to original string value
                             let highlightClass = '';
 
                             if (isNaN(numericValue)) {
@@ -1414,7 +1454,7 @@
                                 highlightClass = 'error-highlight';
                             } else if (numericValue !== targetNumericValue) {
                                 hDMismatches.push({ lineIndex: globalLineIndex, type: prefix, value: valueStr, expected: targetNumericValue });
-                                finalValue = targetNumericValue; // Always correct the value in the content
+                                finalValue = String(targetNumericValue); // Always correct the value in the content
                                 highlightClass = 'error-highlight'; // Mark as error because it needed correction
                                 replacementsMade++; // Count this as a replacement
                             } else {
@@ -1483,6 +1523,16 @@
                 });
             });
 
+            // --- Diagnostic Logs ---
+            console.log("--- scanAndReplaceAllLogic Diagnostics ---");
+            console.log("Original content line count:", fullContent.split('\n').length);
+            console.log("Final processed lines array length:", finalProcessedLines.length);
+            console.log("First 15 lines of finalProcessedLines:", finalProcessedLines.slice(0, 15));
+            console.log("Last 15 lines of finalProcessedLines:", finalProcessedLines.slice(-15));
+            console.log("-----------------------------------------");
+            // --- End Diagnostic Logs ---
+
+
             fileContentEditor.innerHTML = finalProcessedLines.join('\n'); // Set HTML content with highlights
             hasHDCrossMatchErrors = hDMismatches.length > 0;
             updateDownloadButtonState();
@@ -1536,63 +1586,77 @@
                 return;
             }
 
-            let { blocks } = parseToolBlocksDetailed(fullContent); // Destructure to get blocks
+            // Identify all old tool change comments in the *entire* file to be removed
+            const linesToFilterOut = new Set();
+            fullContent.split('\n').forEach((line, index) => {
+                const trimmedLine = line.trim();
+                // This regex targets comments that look like tool change comments
+                if (trimmedLine.startsWith('(') && trimmedLine.toLowerCase().includes('tool change, tool')) {
+                    linesToFilterOut.add(index);
+                }
+            });
+
+            let { blocks } = parseToolBlocksDetailed(fullContent); // Parse based on original content
             const finalLines = [];
             let changesMade = 0;
+            let globalOriginalLineIndex = 0; // To track the index in the original fullContent
 
             blocks.forEach(block => {
                 const tempBlockFinalLines = [];
                 const originalBlockLines = block.lines;
                 
-                let nakedTInsertedForThisBlock = false; // Flag to ensure naked T is added only once per block
+                let nakedTInsertedForThisBlock = false;
 
                 for (let i = 0; i < originalBlockLines.length; i++) {
                     const line = originalBlockLines[i];
+                    // Before processing the line, check if it's one of the lines we need to filter out
+                    // We use globalOriginalLineIndex because linesToFilterOut was built based on it.
+                    if (linesToFilterOut.has(globalOriginalLineIndex)) {
+                        changesMade++; // Count this as a change because it's being removed
+                        globalOriginalLineIndex++; // Increment for the skipped line
+                        continue; // Skip adding this line to tempBlockFinalLines
+                    }
+
                     const trimmedLine = line.trim();
 
-                    // Case 1: This is the original tool change comment line
-                    if (i === block.toolChangeCommentIndexInBlock && block.toolChangeCommentIndexInBlock !== -1) {
-                        if (block.nextToolValue) {
-                            // Replace existing comment with new one
-                            tempBlockFinalLines.push(`( TOOL CHANGE, TOOL ${block.nextToolValue} )`);
-                            changesMade++;
-                        } else {
-                            // Keep original comment if no next tool to suggest
-                            tempBlockFinalLines.push(line);
-                        }
-                    } 
-                    // Case 2: This is the T#M6 line
-                    else if (i === block.tM6LineIndexInBlock && block.tM6LineIndexInBlock !== -1) {
-                        tempBlockFinalLines.push(line); // Always add the T#M6 line first
+                    // Check if this is the T#M6 line for the current block
+                    // In the new parseToolBlocksDetailed, tM6LineIndexInBlock is always 0 for actual tool blocks
+                    const isCurrentBlockM6Line = (block.actualTool !== null && i === block.tM6LineIndexInBlock);
 
-                        // Now, insert the naked T *after* the T#M6 line, if applicable
+                    if (isCurrentBlockM6Line) {
+                        // Insert the new comment *before* the T#M6 line
+                        if (block.nextToolValue) {
+                            const newToolChangeComment = `( TOOL CHANGE, TOOL ${block.nextToolValue} )`;
+                            tempBlockFinalLines.push(newToolChangeComment);
+                            changesMade++;
+                        }
+                        
+                        tempBlockFinalLines.push(line); // Add the T#M6 line
+                        
+                        // Now, insert the naked T *after* this T#M6 line
                         if (block.nextToolValue && !nakedTInsertedForThisBlock) {
                             const nakedTLine = ` ${block.nextToolValue}`;
-                            // Check if the line immediately following T#M6 in the original block is already the naked T
-                            const nextOriginalLineAfterM6 = originalBlockLines[i + 1];
-                            if (!nextOriginalLineAfterM6 || nextOriginalLineAfterM6.trim().toUpperCase() !== nakedTLine.trim().toUpperCase()) {
+                            
+                            // Check if the naked T line already exists immediately after in the original content
+                            // Use globalOriginalLineIndex + 1 to check the next line in the original content
+                            const originalContentLines = fullContent.split('\n');
+                            const nextOriginalLine = originalContentLines[globalOriginalLineIndex + 1];
+                            
+                            if (!nextOriginalLine || nextOriginalLine.trim().toUpperCase() !== nakedTLine.trim().toUpperCase()) {
                                 tempBlockFinalLines.push(nakedTLine);
                                 changesMade++;
                             }
-                            nakedTInsertedForThisBlock = true; // Mark as inserted for this block
+                            nakedTInsertedForThisBlock = true;
                         }
+                    } else {
+                        tempBlockFinalLines.push(line); // Add other lines
                     }
-                    // Case 3: Handle already existing naked T line (that would now be a duplicate)
-                    // This condition must come AFTER the T#M6 handling to ensure the T#M6 is processed first.
-                    else if (block.nextToolValue && nakedTInsertedForThisBlock && trimmedLine.toUpperCase() === block.nextToolValue.toUpperCase()) {
-                        // If the naked T was just inserted by our logic (nakedTInsertedForThisBlock is true),
-                        // and this current line is that naked T, then skip it to avoid duplicates.
-                        continue; 
-                    }
-                    // Any other line
-                    else {
-                        tempBlockFinalLines.push(line);
-                    }
+                    globalOriginalLineIndex++; // Increment for the line just processed
                 }
                 finalLines.push(...tempBlockFinalLines);
             });
 
-            // Re-index N values in finalLines
+            // Re-index N values in finalLines (this logic seems fine as is)
             const reIndexedLines = [];
             let currentN = 10; // Default starting N value
             const nIncrement = 5; 
