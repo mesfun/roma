@@ -3,12 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>File Editor</title>
-    <link
-      rel="icon"
-      href="data:image/x-icon;base64,AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAGAAAAAAAAAAA"
-      type="image/x-icon"
-    />
+    <title>G-Code Editor</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       body {
@@ -135,7 +130,6 @@
         gap: 0.75rem;
         flex-grow: 1;
       }
-
       .pattern-item {
         background-color: #e0f2fe;
         color: #0369a1;
@@ -183,7 +177,6 @@
         background-color: rgba(255, 0, 0, 0.3);
         animation: fadeOutRed 3s forwards;
       }
-
       @keyframes fadeOutRed {
         from {
           background-color: rgba(255, 0, 0, 0.3);
@@ -192,7 +185,6 @@
           background-color: transparent;
         }
       }
-
       .g84-pattern-item {
         background-color: #ef4444;
         color: white;
@@ -213,7 +205,7 @@
   <body>
     <div class="container">
       <h1 class="text-3xl font-bold text-center text-gray-800 mb-4">
-        File Content Editor
+        G-Code Editor
       </h1>
 
       <div class="flex flex-col items-center gap-4">
@@ -222,7 +214,7 @@
           <input
             type="file"
             id="fileInput"
-            accept=".txt, .csv, .json, .log, .xml, .html, .css, .js"
+            accept=".txt, .nc"
           />
         </label>
         <span id="fileName" class="text-gray-600 text-sm"
@@ -233,7 +225,7 @@
       <textarea
         id="fileContent"
         class="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-        placeholder="Upload a file or type content here..."
+        placeholder="Upload a file or type G-code here..."
         rows="15"
       ></textarea>
 
@@ -266,57 +258,12 @@
         <div id="messageBox" class="message-box hidden"></div>
       </div>
 
-      <button
-        id="applyNextToolButton"
-        class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition duration-200 shadow-md mt-4"
-      >
-        Apply Next Tool Logic
-      </button>
-
       <div id="detectedPatternsSection" class="detected-patterns-section">
         <h2 class="text-xl font-semibold text-gray-700">
           Detected Patterns (Click to use in Find fields)
         </h2>
         <div id="patternList">
           <p class="text-gray-500">Upload a file to detect patterns.</p>
-        </div>
-
-        <div class="formula-editing-section mt-6 pt-4 border-t border-gray-200">
-          <h3 class="text-lg font-semibold text-gray-700 mb-2">
-            Calculated Formulas (Editable)
-          </h3>
-          <div class="mb-3">
-            <label
-              for="sFormulaInput"
-              class="block text-sm font-medium text-gray-700"
-              >S Formula:</label
-            >
-            <input
-              type="text"
-              id="sFormulaInput"
-              class="formula-input"
-              value="S = (3.82 * 800) / TOOL DIA"
-            />
-            <p class="text-xs text-gray-500 mt-1">
-              Format: S = (Num1 * Num2) / TOOL DIA
-            </p>
-          </div>
-          <div>
-            <label
-              for="fFormulaInput"
-              class="block text-sm font-medium text-gray-700"
-              >F Formula:</label
-            >
-            <input
-              type="text"
-              id="fFormulaInput"
-              class="formula-input"
-              value="F = S * 4 * 0.003"
-            />
-            <p class="text-xs text-gray-500 mt-1">
-              Format: F = S * Num1 * Num2
-            </p>
-          </div>
         </div>
       </div>
 
@@ -341,9 +288,6 @@
       const fileNameSpan = document.getElementById("fileName");
       const fileContentTextArea = document.getElementById("fileContent");
       const replaceButton = document.getElementById("replaceButton");
-      const applyNextToolButton = document.getElementById(
-        "applyNextToolButton"
-      );
       const downloadButton = document.getElementById("downloadButton");
       const clearButton = document.getElementById("clearButton");
       const messageBox = document.getElementById("messageBox");
@@ -351,12 +295,9 @@
       const findReplaceInputsContainer = document.getElementById(
         "findReplaceInputsContainer"
       );
-      const sFormulaInput = document.getElementById("sFormulaInput");
-      const fFormulaInput = document.getElementById("fFormulaInput");
-
-      let currentFileName = "edited_file.txt";
+      
+      let currentFileName = "edited_file.nc";
       let currentFindInputIndex = 0;
-      let hasAppliedNextToolLogic = false;
 
       const MAX_INPUT_PAIRS = 50;
       const findInputs = [];
@@ -364,38 +305,6 @@
       const inputPairContainers = [];
 
       let allDetectedTPatterns = [];
-
-      let sFormulaConstants = { num1: 3.82, num2: 800 };
-      let fFormulaConstants = { num1: 4, num2: 0.003 };
-
-      const toolDiaPatternRegex = /^TOOL DIA\.?\s*[=\-]?\s*([+\-]?\d*\.?\d+)$/i;
-
-      function parseSFormula(formulaString) {
-        const regex =
-          /S\s*=\s*\(\s*(\d+\.?\d*)\s*[\*x]\s*(\d+\.?\d*)\s*\)\s*\/\s*TOOL DIA/i;
-        const match = formulaString.match(regex);
-        if (match && match.length === 3) {
-          const num1 = parseFloat(match[1]);
-          const num2 = parseFloat(match[2]);
-          if (!isNaN(num1) && !isNaN(num2)) {
-            return { num1, num2 };
-          }
-        }
-        return null;
-      }
-
-      function parseFFormula(formulaString) {
-        const regex = /F\s*=\s*S\s*[\*x]\s*(\d+\.?\d*)\s*[\*x]\s*(\d+\.?\d*)/i;
-        const match = formulaString.match(regex);
-        if (match && match.length === 3) {
-          const num1 = parseFloat(match[1]);
-          const num2 = parseFloat(match[2]);
-          if (!isNaN(num1) && !isNaN(num2)) {
-            return { num1, num2 };
-          }
-        }
-        return null;
-      }
 
       function createInputPairs() {
         findInputs.push(document.getElementById("find1"));
@@ -508,7 +417,7 @@
         const regexS = /S(\d+)/gi;
         const regexF = /F(\d+\.?\d*)/gi;
         const regexG84 = /G84/gi;
-        const localRegexToolDia = /TOOL DIA\.?\s*[=\-]?\s*([+\-]?\d*\.?\d+)/gi;
+        const regexToolDia = /TOOL DIA\.?\s*[=\-]?\s*([+\-]?\d*\.?\d+)/gi;
         const specialCommentRegex =
           /\(\s*T\d+\s*\|\s*([^|]+?)\s*\|\s*H\d+\s*\|\s*D\d+\s*\|\s*WEAR COMP\s*\|\s*TOOL DIA\.?\s*-\s*\d*\.?\d+\s*\)/gi;
 
@@ -586,8 +495,8 @@
             g84Patterns.set(nValue, (g84Patterns.get(nValue) || 0) + 1);
           }
 
-          localRegexToolDia.lastIndex = 0;
-          while ((match = localRegexToolDia.exec(cleanedLine)) !== null) {
+          regexToolDia.lastIndex = 0;
+          while ((match = regexToolDia.exec(cleanedLine)) !== null) {
             const pattern = match[0];
             toolDiaPatterns.set(
               pattern,
@@ -625,7 +534,9 @@
           const line = lines[i];
           const trimmedLine = line.trim();
 
-          if (trimmedLine.toLowerCase().includes("m1")) {
+          const isSeparator = trimmedLine.toLowerCase().includes("m01") || trimmedLine.toLowerCase().includes("m30");
+
+          if (isSeparator) {
             groupCounter++;
             const nMatchOnM01Line = trimmedLine.match(/N(\d+)/i);
             const nValueForThisM01 = nMatchOnM01Line
@@ -664,46 +575,7 @@
             });
 
             const g84DetailsForGroup = [];
-            let currentToolDiaForGroup = null;
-
-            currentGroupContentLines.forEach((segmentLine) => {
-              const cleanedSegmentLine = cleanLineFromComments(segmentLine);
-              const toolDiaMatch = cleanedSegmentLine.match(
-                /TOOL DIA\.?\s*[=\-]?\s*([+\-]?\d*\.?\d+)/i
-              );
-              if (toolDiaMatch) {
-                currentToolDiaForGroup = parseFloat(toolDiaMatch[1]);
-              }
-
-              if (cleanedSegmentLine.includes("G84")) {
-                const nMatch = cleanedSegmentLine.match(/N(\d+)/i);
-                const nValue = nMatch ? nMatch[0].toUpperCase() : "N/A";
-
-                let suggestedS = "N/A";
-                let suggestedF = "N/A";
-
-                if (
-                  currentToolDiaForGroup !== null &&
-                  !isNaN(currentToolDiaForGroup) &&
-                  currentToolDiaForGroup !== 0
-                ) {
-                  suggestedS = Math.round(
-                    (sFormulaConstants.num1 * sFormulaConstants.num2) /
-                      currentToolDiaForGroup
-                  );
-                  if (suggestedS > 15000) suggestedS = 15000;
-
-                  suggestedF = (
-                    suggestedS *
-                    fFormulaConstants.num1 *
-                    fFormulaConstants.num2
-                  ).toFixed(3);
-                  if (suggestedF > 40) suggestedF = 40;
-                }
-                g84DetailsForGroup.push({ nValue, suggestedS, suggestedF });
-              }
-            });
-
+            
             renderGroupPatterns(
               groupCounter,
               tPatterns,
@@ -771,46 +643,8 @@
               allDetectedTPatterns.push(pattern);
             }
           });
-
+          
           const g84DetailsForGroup = [];
-          let currentToolDiaForGroup = null;
-          currentGroupContentLines.forEach((segmentLine) => {
-            const cleanedSegmentLine = cleanLineFromComments(segmentLine);
-            const toolDiaMatch = cleanedSegmentLine.match(
-              /TOOL DIA\.?\s*[=\-]?\s*([+\-]?\d*\.?\d+)/i
-            );
-            if (toolDiaMatch) {
-              currentToolDiaForGroup = parseFloat(toolDiaMatch[1]);
-            }
-
-            if (cleanedSegmentLine.includes("G84")) {
-              const nMatch = cleanedSegmentLine.match(/N(\d+)/i);
-              const nValue = nMatch ? nMatch[0].toUpperCase() : "N/A";
-
-              let suggestedS = "N/A";
-              let suggestedF = "N/A";
-
-              if (
-                currentToolDiaForGroup !== null &&
-                !isNaN(currentToolDiaForGroup) &&
-                currentToolDiaForGroup !== 0
-              ) {
-                suggestedS = Math.round(
-                  (sFormulaConstants.num1 * sFormulaConstants.num2) /
-                    currentToolDiaForGroup
-                );
-                if (suggestedS > 15000) suggestedS = 15000;
-
-                suggestedF = (
-                  suggestedS *
-                  fFormulaConstants.num1 *
-                  fFormulaConstants.num2
-                ).toFixed(3);
-                if (suggestedF > 40) suggestedF = 40;
-              }
-              g84DetailsForGroup.push({ nValue, suggestedS, suggestedF });
-            }
-          });
 
           renderGroupPatterns(
             groupCounter,
@@ -1128,7 +962,7 @@
         if (hasM01Separator) {
           const m01Separator = document.createElement("p");
           m01Separator.className = "text-center text-gray-600 font-bold my-4";
-          m01Separator.textContent = "--- M1 ---";
+          m01Separator.textContent = "--- M01 ---";
           patternListDiv.appendChild(m01Separator);
         }
       }
@@ -1306,9 +1140,6 @@
           reader.onload = (e) => {
             fileContentTextArea.value = e.target.result;
             showMessage("File loaded successfully!", "success");
-            hasAppliedNextToolLogic = false;
-            applyNextToolButton.classList.remove("button-disabled");
-            applyNextToolButton.disabled = false;
             scanAndDisplayPatterns();
           };
 
@@ -1322,90 +1153,41 @@
         } else {
           fileContentTextArea.value = "";
           fileNameSpan.textContent = "No file selected";
-          currentFileName = "edited_file.txt";
+          currentFileName = "edited_file.nc";
           showMessage("No file selected.", "info");
-          hasAppliedNextToolLogic = false;
-          applyNextToolButton.classList.remove("button-disabled");
-          applyNextToolButton.disabled = false;
           scanAndDisplayPatterns();
         }
       });
 
       function getBlockTools(content) {
-        const lines = content.split("\n");
-        const blockTools = [];
-        let currentBlockContentLines = [];
+        const lines = content.split('\n');
+        const toolNumbers = new Set();
+        let lastSeenTool = null;
+        
+        for (const line of lines) {
+          const cleanedLine = cleanLineFromComments(line);
+          const tMatch = cleanedLine.match(/T(\d+)/i);
+          const isM6 = cleanedLine.toLowerCase().includes("m6");
+          const isM1 = cleanedLine.toLowerCase().includes("m1");
+          const isM30 = cleanedLine.toLowerCase().includes("m30");
 
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i];
-          const trimmedLine = line.trim();
-
-          if (trimmedLine.toLowerCase().includes("m1")) {
-            let tMatch = null;
-            for (const blockLine of currentBlockContentLines) {
-              const cleanedBlockLine = cleanLineFromComments(blockLine);
-              const tM6Match = cleanedBlockLine.match(/(T\d+)\s*M6/i);
-              if (tM6Match) {
-                tMatch = tM6Match[1].toUpperCase();
-                break;
-              }
-            }
-            if (tMatch) {
-              blockTools.push(tMatch);
-            }
-            currentBlockContentLines = [];
-          } else {
-            currentBlockContentLines.push(line);
-          }
-        }
-
-        if (currentBlockContentLines.length > 0) {
-          let tMatch = null;
-          for (const blockLine of currentBlockContentLines) {
-            const cleanedBlockLine = cleanLineFromComments(blockLine);
-            const tM6Match = cleanedBlockLine.match(/(T\d+)\s*M6/i);
-            if (tM6Match) {
-              tMatch = tM6Match[1].toUpperCase();
-              break;
-            }
-          }
           if (tMatch) {
-            blockTools.push(tMatch);
+            lastSeenTool = tMatch[0].toUpperCase();
+          }
+          if (lastSeenTool && (isM6 || isM1 || isM30)) {
+            toolNumbers.add(lastSeenTool);
+            lastSeenTool = null;
           }
         }
-        return blockTools;
+        return Array.from(toolNumbers);
       }
-
+      
       replaceButton.addEventListener("click", () => {
+        console.log("--- Starting 'Scan & Replace All' process ---");
         clearMessageBox();
         let fullContent = fileContentTextArea.value;
         let replacementsMade = 0;
         let validationPassed = true;
-
-        const tempSConstants = parseSFormula(sFormulaInput.value);
-        const tempFConstants = parseFFormula(fFormulaInput.value);
-
-        if (!tempSConstants) {
-          showMessage(
-            "Error: Invalid S Formula format. Using default: S = (3.82 * 800) / TOOL DIA",
-            "error"
-          );
-          sFormulaInput.value = "S = (3.82 * 800) / TOOL DIA";
-          sFormulaConstants = { num1: 3.82, num2: 800 };
-        } else {
-          sFormulaConstants = tempSConstants;
-        }
-
-        if (!tempFConstants) {
-          showMessage(
-            "Error: Invalid F Formula format. Using default: F = S * 4 * 0.003",
-            "error"
-          );
-          fFormulaInput.value = "F = S * 4 * 0.003";
-          fFormulaConstants = { num1: 4, num2: 0.003 };
-        } else {
-          fFormulaConstants = tempFConstants;
-        }
 
         const replacementsToApply = [];
         for (let i = 0; i < MAX_INPUT_PAIRS; i++) {
@@ -1486,453 +1268,74 @@
           return;
         }
 
-        let propagateNewTNumericValue = null;
-        let propagationStartNValue = -1;
-        let shouldPropagateHD = false;
-
-        let propagateNewSNumericValue = null;
-        let sPropagationOriginLineN = -1;
-        let propagateNewFNumericValue = null;
-        let fPropagationOriginLineN = -1;
-
-        let currentGroupToolDiaValue = null;
-        let currentGroupSNumericValue = null;
+        console.log("Replacements to apply:", replacementsToApply);
 
         const lines = fullContent.split("\n");
         const newLines = [];
 
-        const specialCommentTRegex = /\(\s*T(\d+)\s*\|[^)]*\)/i;
-
-        lines.forEach((line, index) => {
+        lines.forEach((line) => {
           let processedLine = line;
-          let nMatch = line.match(/N(\d+)/i);
-          let currentLineNValue = nMatch ? parseInt(nMatch[1], 10) : -1;
+          
+          if (processedLine.toUpperCase().includes("M06")) {
+              const tMatch = processedLine.match(/T(\d+)/i);
+              if (tMatch) {
+                  const tValue = tMatch[1];
+                  const newH = `H${tValue}`;
+                  const newD = `D${tValue}`;
 
-          let tValueFoundOnM6Line = false;
-          let tNumericValueFromM6Line = null;
-          let tChangedByDirectReplaceOnThisLine = false;
+                  // Regex to replace existing H and D values with the new ones.
+                  // It looks for a word that starts with H or D and is followed by a number.
+                  const hRegex = /H\d+(\.\d+)?/i;
+                  const dRegex = /D\d+(\.\d+)?/i;
 
-          let sChangedOnThisLine = false;
-          let fChangedOnThisLine = false;
-          let toolDiaChangedOnThisLine = false;
-
-          let sNewNumericValueForCurrentLine = null;
-          let fNewNumericValueForCurrentLine = null;
-          let toolDiaNewNumericValueForCurrentLine = null;
-
-          const originalCleanedLine = cleanLineFromComments(line);
-
-          const isM01Line = processedLine.toLowerCase().includes("m1");
-          if (isM01Line) {
-            propagateNewTNumericValue = null;
-            propagationStartNValue = -1;
-            shouldPropagateHD = false;
-            propagateNewSNumericValue = null;
-            sPropagationOriginLineN = -1;
-            propagateNewFNumericValue = null;
-            fPropagationOriginLineN = -1;
-
-            currentGroupSNumericValue = null;
-            currentGroupToolDiaValue = null;
-          }
-
-          const specialCommentTMatch = line.match(specialCommentTRegex);
-          if (specialCommentTMatch) {
-            propagateNewTNumericValue = specialCommentTMatch[1];
-            propagationStartNValue = currentLineNValue;
-            shouldPropagateHD = true;
+                  if (hRegex.test(processedLine)) {
+                      processedLine = processedLine.replace(hRegex, newH);
+                      replacementsMade++;
+                  }
+                  
+                  if (dRegex.test(processedLine)) {
+                      processedLine = processedLine.replace(dRegex, newD);
+                      replacementsMade++;
+                  }
+              }
           } else {
-            const tM6OnOriginalLineMatch =
-              originalCleanedLine.match(/(T(\d+))\s*M6/i);
-            if (tM6OnOriginalLineMatch) {
-              if (propagateNewTNumericValue === null) {
-                tValueFoundOnM6Line = true;
-                tNumericValueFromM6Line = tM6OnOriginalLineMatch[2];
-                propagateNewTNumericValue = tNumericValueFromM6Line;
-                propagationStartNValue = currentLineNValue;
-                shouldPropagateHD = true;
-              }
-            }
+              // If the line doesn't have an M06, apply standard find/replace rules
+              replacementsToApply.forEach((pair) => {
+                  const findValue = pair.find;
+                  const effectiveReplaceValue = pair.effectiveReplace;
+                  const escapedFindValue = findValue.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                  const regex = new RegExp(`\\b${escapedFindValue}\\b`, "gi");
+
+                  if (regex.test(processedLine)) {
+                      const initialLine = processedLine;
+                      processedLine = processedLine.replace(regex, effectiveReplaceValue);
+                      if (initialLine !== processedLine) {
+                          replacementsMade++;
+                      }
+                  }
+              });
           }
 
-          replacementsToApply.forEach((pair) => {
-            const findValue = pair.find;
-            const effectiveReplaceValue = pair.effectiveReplace.toUpperCase();
-            const escapedFindValue = findValue.replace(
-              /[.*+?^${}()|[\]\\]/g,
-              "\\$&"
-            );
-            const regex = new RegExp(escapedFindValue, "gi");
-
-            if (
-              findValue.toUpperCase().startsWith("T") &&
-              /\d+/.test(findValue)
-            ) {
-              if (regex.test(processedLine)) {
-                propagateNewTNumericValue = String(pair.newTNumeric);
-                tChangedByDirectReplaceOnThisLine = true;
-              }
-            }
-
-            if (
-              findValue.toUpperCase().startsWith("S") &&
-              /\d+\.?\d*/.test(findValue) &&
-              /\d+\.?\d*/.test(effectiveReplaceValue)
-            ) {
-              const originalSNumeric = parseFloat(
-                findValue.match(/\d+\.?\d*/)[0]
-              );
-              const newSNumeric = parseFloat(
-                effectiveReplaceValue.match(/\d+\.?\d*/)[0]
-              );
-              if (
-                regex.test(processedLine) &&
-                originalSNumeric !== newSNumeric
-              ) {
-                sChangedOnThisLine = true;
-                sNewNumericValueForCurrentLine = newSNumeric;
-              }
-            }
-
-            if (
-              findValue.toUpperCase().startsWith("F") &&
-              /\d+\.?\d*/.test(findValue) &&
-              /\d+\.?\d*/.test(effectiveReplaceValue)
-            ) {
-              const originalFNumeric = parseFloat(
-                findValue.match(/\d+\.?\d*/)[0]
-              );
-              const newFNumeric = parseFloat(
-                effectiveReplaceValue.match(/\d+\.?\d*/)[0]
-              );
-              if (
-                regex.test(processedLine) &&
-                originalFNumeric !== newFNumeric
-              ) {
-                fChangedOnThisLine = true;
-                fNewNumericValueForCurrentLine = newFNumeric;
-              }
-            }
-
-            if (
-              toolDiaPatternRegex.test(findValue) &&
-              toolDiaPatternRegex.test(effectiveReplaceValue)
-            ) {
-              const newToolDiaMatch =
-                effectiveReplaceValue.match(/([+\-]?\d*\.?\d+)$/i);
-              if (newToolDiaMatch) {
-                const newToolDiaValue = parseFloat(newToolDiaMatch[1]);
-                if (regex.test(processedLine)) {
-                  toolDiaChangedOnThisLine = true;
-                  toolDiaNewNumericValueForCurrentLine = newToolDiaValue;
-                }
-              }
-            }
-
-            processedLine = processedLine.replace(regex, (match) => {
-              replacementsMade++;
-              return effectiveReplaceValue;
-            });
-          });
-
-          const toolDiaMatchOnProcessedLine = processedLine.match(
-            /TOOL DIA\.?\s*[=\-]?\s*([+\-]?\d*\.?\d+)/i
-          );
-          if (toolDiaMatchOnProcessedLine) {
-            currentGroupToolDiaValue = parseFloat(
-              toolDiaMatchOnProcessedLine[1]
-            );
-          }
-
-          const sMatchOnProcessedLineForContext =
-            processedLine.match(/S(\d+\.?\d*)/i);
-          if (sMatchOnProcessedLineForContext) {
-            currentGroupSNumericValue = parseFloat(
-              sMatchOnProcessedLineForContext[1]
-            );
-          }
-
-          if (sChangedOnThisLine) {
-            propagateNewSNumericValue = sNewNumericValueForCurrentLine;
-            sPropagationOriginLineN = currentLineNValue;
-          }
-          if (fChangedOnThisLine) {
-            propagateNewFNumericValue = fNewNumericValueForCurrentLine;
-            fPropagationOriginLineN = currentLineNValue;
-          }
-
-          let calculatedSNumericFromToolDia = null;
-          if (
-            currentGroupToolDiaValue !== null &&
-            !isNaN(currentGroupToolDiaValue) &&
-            currentGroupToolDiaValue !== 0
-          ) {
-            calculatedSNumericFromToolDia = Math.round(
-              (sFormulaConstants.num1 * sFormulaConstants.num2) /
-                currentGroupToolDiaValue
-            );
-          }
-
-          const regexS = /S(\d+\.?\d*)/gi;
-          if (
-            (propagateNewSNumericValue !== null &&
-              currentLineNValue >= sPropagationOriginLineN &&
-              sPropagationOriginLineN !== -1) ||
-            (processedLine.match(regexS) &&
-              calculatedSNumericFromToolDia !== null)
-          ) {
-            processedLine = processedLine.replace(regexS, (match, p1) => {
-              const oldSNumericValue = parseFloat(p1);
-              let newSNumericToApply = propagateNewSNumericValue;
-
-              if (
-                propagateNewSNumericValue === null &&
-                calculatedSNumericFromToolDia !== null
-              ) {
-                newSNumericToApply = calculatedSNumericFromToolDia;
-              }
-
-              if (newSNumericToApply !== null) {
-                if (newSNumericToApply > 15000) {
-                  showMessage(
-                    `S value ${newSNumericToApply} on line N${
-                      currentLineNValue !== -1 ? currentLineNValue : "N/A"
-                    } capped at 15000!`,
-                    "error"
-                  );
-                  newSNumericToApply = 15000;
-                }
-
-                if (oldSNumericValue !== newSNumericToApply) {
-                  replacementsMade++;
-                  return "S" + newSNumericToApply;
-                }
-              }
-              return match;
-            });
-
-            const sMatchAfterSUpdate = processedLine.match(/S(\d+\.?\d*)/i);
-            if (sMatchAfterSUpdate) {
-              currentGroupSNumericValue = parseFloat(sMatchAfterSUpdate[1]);
-            }
-          }
-
-          let calculatedFNumericFromS = null;
-          if (
-            currentGroupSNumericValue !== null &&
-            !isNaN(currentGroupSNumericValue) &&
-            currentGroupToolDiaValue !== null &&
-            !isNaN(currentGroupToolDiaValue) &&
-            currentGroupToolDiaValue !== 0
-          ) {
-            calculatedFNumericFromS =
-              currentGroupSNumericValue *
-              fFormulaConstants.num1 *
-              fFormulaConstants.num2;
-          }
-
-          const regexF = /F(\d+\.?\d*)/gi;
-          if (
-            (propagateNewFNumericValue !== null &&
-              currentLineNValue >= fPropagationOriginLineN &&
-              fPropagationOriginLineN !== -1) ||
-            (processedLine.match(regexF) && calculatedFNumericFromS !== null)
-          ) {
-            processedLine = processedLine.replace(regexF, (match, p1) => {
-              const oldFNumericValue = parseFloat(p1);
-              let newFNumericToApply = propagateNewFNumericValue;
-
-              if (
-                propagateNewFNumericValue === null &&
-                calculatedFNumericFromS !== null
-              ) {
-                newFNumericToApply = calculatedFNumericFromS;
-              }
-
-              if (newFNumericToApply !== null) {
-                if (newFNumericToApply > 40) {
-                  showMessage(
-                    `F value ${newFNumericToApply.toFixed(3)} on line N${
-                      currentLineNValue !== -1 ? currentLineNValue : "N/A"
-                    } capped at 40!`,
-                    "error"
-                  );
-                  newFNumericToApply = 40;
-                }
-
-                if (
-                  oldFNumericValue.toFixed(3) !== newFNumericToApply.toFixed(3)
-                ) {
-                  replacementsMade++;
-                  return "F" + newFNumericToApply.toFixed(3);
-                }
-              }
-              return match;
-            });
-          }
-
-          if (
-            shouldPropagateHD &&
-            propagateNewTNumericValue !== null &&
-            currentLineNValue >= propagationStartNValue &&
-            propagationStartNValue !== -1
-          ) {
-            const targetNumericValue = parseInt(propagateNewTNumericValue, 10);
-
-            const regexH = /H(\d+)/gi;
-            processedLine = processedLine.replace(regexH, (match, p1) => {
-              const oldHNumericValue = parseInt(p1, 10);
-              if (oldHNumericValue !== targetNumericValue) {
-                replacementsMade++;
-                return "H" + propagateNewTNumericValue;
-              }
-              return match;
-            });
-
-            const regexD = /D(\d+)/gi;
-            processedLine = processedLine.replace(regexD, (match, p1) => {
-              const oldDNumericValue = parseInt(p1, 10);
-              if (oldDNumericValue !== targetNumericValue) {
-                replacementsMade++;
-                return "D" + propagateNewTNumericValue;
-              }
-              return match;
-            });
-          }
           newLines.push(processedLine);
         });
 
         fileContentTextArea.value = newLines.join("\n");
-
         if (replacementsMade > 0) {
-          showMessage(`${replacementsMade} replacements made!`, "success");
+            showMessage(`${replacementsMade} replacements made!`, "success");
         } else {
-          showMessage("No replacements made or nothing to replace.", "info");
+            showMessage("No replacements made or nothing to replace.", "info");
         }
+        console.log(`--- Finished process. Total replacements made: ${replacementsMade} ---`);
         scanAndDisplayPatterns();
 
         for (let i = 0; i < MAX_INPUT_PAIRS; i++) {
-          findInputs[i].value = "";
-          replaceInputs[i].value = "";
-          if (i > 0) {
-            inputPairContainers[i].classList.add("hidden");
-          }
+            findInputs[i].value = "";
+            replaceInputs[i].value = "";
+            if (i > 0) {
+                inputPairContainers[i].classList.add("hidden");
+            }
         }
         currentFindInputIndex = 0;
-      });
-
-      applyNextToolButton.addEventListener("click", () => {
-        clearMessageBox();
-        if (hasAppliedNextToolLogic) {
-          showMessage(
-            "The 'Apply Next Tool Logic' has already been applied. Please use 'Scan & Replace All' for further updates or clear the content to re-enable this function.",
-            "info"
-          );
-          return;
-        }
-
-        let fullContent = fileContentTextArea.value;
-        if (fullContent.trim() === "") {
-          showMessage(
-            "Please upload a CNC file or enter content before applying 'Next Tool' logic.",
-            "error"
-          );
-          return;
-        }
-
-        const originalLines = fullContent.split("\n");
-        const linesWithInsertions = [];
-        const blockTools = getBlockTools(fullContent);
-
-        let currentBlockIndex = -1;
-        let changesMade = 0;
-
-        originalLines.forEach((line, lineIndex) => {
-          linesWithInsertions.push(line);
-
-          const isM01Line = line.toLowerCase().includes("m1");
-          if (isM01Line) {
-            currentBlockIndex++;
-          }
-
-          const tM6Regex = /(T\d+)\s*M6/i;
-          const tM6Match = line.match(tM6Regex);
-
-          if (tM6Match) {
-            const currentToolOnly = tM6Match[1].match(/T(\d+)/i)[0];
-
-            let nextToolValue = null;
-            if (blockTools.length > 0) {
-              const currentToolIndexInBlockTools =
-                blockTools.indexOf(currentToolOnly);
-              if (currentToolIndexInBlockTools !== -1) {
-                const nextBlockToolIndex =
-                  (currentToolIndexInBlockTools + 1) % blockTools.length;
-                nextToolValue = blockTools[nextBlockToolIndex];
-              }
-            }
-
-            if (nextToolValue) {
-              const currentToolNumeric = parseInt(
-                currentToolOnly.replace("T", ""),
-                10
-              );
-              const nextToolNumeric = parseInt(
-                nextToolValue.replace("T", ""),
-                10
-              );
-
-              if (currentToolNumeric !== nextToolNumeric) {
-                linesWithInsertions.push(`   ${nextToolValue}`);
-                changesMade++;
-              }
-            }
-          }
-        });
-
-        const finalLines = [];
-        let currentN = 10;
-        const nIncrement = 5;
-
-        let firstNFound = false;
-        for (const line of linesWithInsertions) {
-          const nMatch = line.match(/^N(\d+)/i);
-          if (nMatch) {
-            currentN = parseInt(nMatch[1], 10);
-            firstNFound = true;
-            break;
-          }
-        }
-
-        linesWithInsertions.forEach((line) => {
-          let modifiedLine = line;
-          const nMatch = line.match(/^N(\d+)/i);
-
-          if (nMatch) {
-            modifiedLine =
-              `N${currentN} ` + line.substring(nMatch[0].length).trim();
-            currentN += nIncrement;
-          } else if (line.trim().startsWith("T") && line.trim().length > 1) {
-            modifiedLine = `N${currentN} ${line.trim()}`;
-            currentN += nIncrement;
-          }
-          finalLines.push(modifiedLine);
-        });
-
-        fileContentTextArea.value = finalLines.join("\n");
-
-        if (changesMade > 0) {
-          showMessage(
-            `${changesMade} 'Next Tool' lines inserted and N values re-indexed!`,
-            "success"
-          );
-          hasAppliedNextToolLogic = true;
-          applyNextToolButton.classList.add("button-disabled");
-          applyNextToolButton.disabled = true;
-        } else {
-          showMessage('No "Next Tool" changes were needed or found.', "info");
-        }
-        scanAndDisplayPatterns();
       });
 
       downloadButton.addEventListener("click", () => {
@@ -1969,11 +1372,8 @@
             inputPairContainers[i].classList.add("hidden");
           }
         }
-        currentFileName = "edited_file.txt";
+        currentFileName = "edited_file.nc";
         showMessage("All fields cleared.", "info");
-        hasAppliedNextToolLogic = false;
-        applyNextToolButton.classList.remove("button-disabled");
-        applyNextToolButton.disabled = false;
         scanAndDisplayPatterns();
         currentFindInputIndex = 0;
       });
@@ -1984,8 +1384,6 @@
 
       window.addEventListener("load", () => {
         createInputPairs();
-        sFormulaInput.value = `S = (${sFormulaConstants.num1} * ${sFormulaConstants.num2}) / TOOL DIA`;
-        fFormulaInput.value = `F = S * ${fFormulaConstants.num1} * ${fFormulaConstants.num2}`;
         scanAndDisplayPatterns();
       });
     </script>
